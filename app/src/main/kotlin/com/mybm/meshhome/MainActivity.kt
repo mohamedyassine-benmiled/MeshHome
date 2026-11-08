@@ -35,9 +35,12 @@ class MainActivity : Activity() {
     private var screen = "home"
     private var tutorialStep = 0
     private var powerButton: Button? = null
+    private var connectionHint: TextView? = null
     private val ink = Color.rgb(231, 239, 250)
     private val muted = Color.rgb(162, 181, 204)
     private val accent = Color.rgb(91, 221, 190)
+    private val base = Color.rgb(11, 18, 30)
+    private val panel = Color.rgb(22, 33, 49)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     private fun surface(color: Int, radius: Float = 20f) = GradientDrawable().apply {
         setColor(color); cornerRadius = dp(radius.toInt()).toFloat()
@@ -94,12 +97,13 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun button(label: String, action: () -> Unit) {
+    private fun button(label: String, primary: Boolean = false, action: () -> Unit) {
         page.addView(Button(this).apply {
-            text = label; isAllCaps = false; textSize = 16f; setTextColor(ink)
+            text = label; isAllCaps = false; textSize = 15f; setTextColor(if (primary) base else ink)
+            gravity = Gravity.CENTER
             background = android.graphics.drawable.RippleDrawable(
                 ColorStateList.valueOf(Color.argb(60, 91, 221, 190)),
-                surface(Color.rgb(32, 51, 73)), null
+                surface(if (primary) accent else Color.rgb(35, 49, 68), 14f), null
             ); minHeight = dp(52)
             setPadding(dp(16), dp(10), dp(16), dp(10))
             isEnabled = !busy; alpha = if (busy) 0.5f else 1f
@@ -107,14 +111,58 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); bottomMargin = dp(4) })
     }
 
+    private fun card(title: String? = null, content: () -> Unit) {
+        val parent = page
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = surface(panel)
+            setPadding(dp(18), dp(12), dp(18), dp(18))
+        }
+        parent.addView(container, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(16) })
+        page = container
+        if (title != null) text(title, 22f)
+        content()
+        page = parent
+    }
+
+    private fun shortcut(title: String, detail: String, destination: String) {
+        page.addView(TextView(this).apply {
+            text = "$title  ›\n$detail"
+            textSize = 16f; setTextColor(ink); setLineSpacing(dp(6).toFloat(), 1f)
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x225bddbe), surface(panel), null)
+            isFocusable = true
+            setOnClickListener { navigate(destination) }
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) })
+    }
+
+    private fun navigation(): LinearLayout = LinearLayout(this).apply {
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+        setBackgroundColor(panel)
+        listOf("home" to "Connect", "devices" to "Devices", "routing" to "Routing", "settings" to "Settings").forEach { (route, label) ->
+            addView(TextView(this@MainActivity).apply {
+                text = label; textSize = 12f; gravity = Gravity.CENTER
+                val selected = screen == route
+                setTextColor(if (selected) accent else muted)
+                setCompoundDrawablesWithIntrinsicBounds(null, MeshIcon(route, if (selected) accent else muted, dp(23)), null, null)
+                compoundDrawablePadding = dp(5)
+                setPadding(dp(2), dp(10), dp(2), dp(10))
+                background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x225bddbe), surface(if (selected) Color.rgb(30, 59, 62) else panel, 14f), null)
+                isSelected = selected; isFocusable = true
+                contentDescription = "$label${if (selected) ", selected" else ""}"
+                setOnClickListener { if (screen != route) navigate(route) }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+    }
+
     private fun render() {
         powerButton = null
-        val spacing = (16 * resources.displayMetrics.density).toInt()
+        connectionHint = null
+        val spacing = dp(20)
         page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(spacing, spacing, spacing, spacing * 2) }
-        setContentView(ScrollView(this).apply {
-            setBackgroundColor(Color.rgb(12, 23, 38))
-            isFillViewport = true
-            addView(page)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(base)
             setOnApplyWindowInsetsListener { view, insets ->
                 if (android.os.Build.VERSION.SDK_INT >= 30) {
                     val bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
@@ -125,31 +173,55 @@ class MainActivity : Activity() {
                 }
                 insets
             }
-            requestApplyInsets()
-        })
+        }
+        root.addView(ScrollView(this).apply { isFillViewport = true; isVerticalScrollBarEnabled = false; addView(page) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (screen != "welcome") root.addView(navigation())
+        setContentView(root)
+        root.requestApplyInsets()
         if (screen == "welcome") { renderWelcome(); return }
-        text(if (screen == "settings") "Settings" else "MeshHome", 30f)
-        if (screen == "settings") button("‹ Back to home") { navigate("home") }
+        text("M E S H H O M E", 12f)
+        text(when (screen) { "devices" -> "Your devices"; "routing" -> "Your traffic"; "settings" -> "Settings"; else -> "Closer to home." }, 32f)
         connectionStatus = TextView(this).apply {
-            text = ConnectionState.message; textSize = 20f; setTextColor(accent)
-            gravity = Gravity.CENTER; setPadding(dp(16), dp(20), dp(16), dp(20))
-            background = surface(Color.rgb(22, 39, 57))
+            text = ConnectionState.message; textSize = 15f; setTextColor(accent)
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(12), dp(12), dp(12))
             accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
-        page.addView(connectionStatus)
         if (screen == "home") { renderHome(); return }
+        when (screen) {
+            "devices" -> renderDevices()
+            "routing" -> renderRouting()
+            else -> renderSettings()
+        }
+    }
+
+    private fun renderDevices() {
+        text("Your private network, in one place.")
+        card("Nord account") {
         text(if (NativeTelio.available) "Native Meshnet engine installed (relay mode). Peer connectivity is shown separately from tunnel readiness."
             else "Native library is not installed for this CPU. Sign-in/settings work, but VPN connection is unavailable until a native build is installed.")
-        text("Nord account", 22f)
         text(if (vault.hasToken) "Token stored encrypted. ${peers.size} devices in cached map." else "Not signed in.")
         if (accountStatus.isNotBlank()) text(accountStatus)
-        button("Sign in with Nord token") { tokenDialog() }
+        button(if (vault.hasToken) "Update Nord token" else "Sign in with Nord token", primary = !vault.hasToken) { tokenDialog() }
         if (vault.hasToken) {
             button("Refresh Meshnet devices") { accountOperation { accounts.refresh(Networks.accountNetwork(this, settings)) } }
             button("Log out / remove this device") { logoutDialog() }
         }
-        peers.forEach { text("${it.name} · ${(it.ipv4 + it.ipv6).joinToString()}") }
-        text("Network policy", 22f)
+        }
+        text("Meshnet devices · ${peers.size}", 22f)
+        if (peers.isEmpty()) card {
+            text("No devices yet", 22f)
+            text("Sign in, then refresh to find the devices in your Meshnet account.")
+        }
+        peers.forEach { device -> card(device.name) {
+            text((device.ipv4 + device.ipv6).joinToString("\n"))
+            text("Saved in your Meshnet account", 12f)
+        } }
+    }
+
+    private fun renderSettings() {
+        text("Make MeshHome fit your day.")
+        shortcut("Nord account", if (vault.hasToken) "Signed in · ${peers.size} saved devices" else "Sign in to get started", "devices")
+        card("Network policy") {
         page.addView(Switch(this).apply {
             setTextColor(ink)
             minHeight = dp(56)
@@ -157,7 +229,9 @@ class MainActivity : Activity() {
             isChecked = settings.mode == NetworkMode.ALL_NETWORKS
             setOnCheckedChangeListener { _, checked -> settings.mode = if (checked) NetworkMode.ALL_NETWORKS else NetworkMode.WIFI_ONLY }
         })
-        text("Home Wi-Fi bypass", 22f)
+        text("Choose whether MeshHome can connect away from Wi-Fi.")
+        }
+        card("Home Wi-Fi bypass") {
         text("Meshnet pauses on these networks, restoring normal LAN routing and Pi-hole DNS. Wi-Fi names can be spoofed; this is not network authentication. If Android hides the Wi-Fi name, bypass is not applied.")
         settings.homeSsids.sorted().forEach { ssid -> button("Remove home network: $ssid") { settings.homeSsids = settings.homeSsids - ssid; render() } }
         button("Add current Wi-Fi as home") { addHomeWifi() }
@@ -167,16 +241,45 @@ class MainActivity : Activity() {
                 else "For automatic home bypass while this screen is closed, Android may require location access set to 'Allow all the time'. Without it, an unreadable SSID keeps Meshnet enabled.")
             button("Background home Wi-Fi permission") { backgroundWifiPermission() }
         }
-        text("Selected apps (${settings.apps.size})", 22f)
+        }
+        card("Help & setup") {
+            text("MeshHome replaces other VPN apps in this Android profile. Always-on lockdown is not supported.")
+            button("Open setup guide") { tutorialStep = 0; navigate("welcome") }
+        }
+        card("Settings backup") {
+            text("Export apps, domain routes, network policy, home Wi-Fi and DNS as an editable JSON text file. Nord tokens and private keys are never exported.")
+            button("Export settings") {
+                @Suppress("DEPRECATION")
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE); type = "application/json"
+                    putExtra(Intent.EXTRA_TITLE, "meshhome-settings.json")
+                }, 201)
+            }
+            button("Import settings") {
+                @Suppress("DEPRECATION")
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+                }, 202)
+            }
+            text("To sign in during import, manually add a top-level \"nordToken\": \"YOUR_TOKEN\" field. Treat that file as a secret and remove the token afterward. Import replaces settings; device IDs must match your Meshnet account.", 13f)
+        }
+    }
+
+    private fun renderRouting() {
+        text("Choose the apps and services that travel through Meshnet.")
+        card("Selected apps · ${settings.apps.size}") {
         text("Only selected apps will use Meshnet. An empty selection will never connect. This picker currently lists launchable apps.")
         button("Choose apps") { appPicker() }
-        text("Domain → Meshnet device", 22f)
+        }
+        text("Domain routes", 22f)
         text("example.org matches only that name. *.example.org matches subdomains, not example.org. You can add multiple rules targeting different devices.")
         settings.rules.forEachIndexed { index, rule ->
+            card {
             val device = peers.find { it.id == rule.deviceId }?.name ?: "Unavailable device (${rule.deviceId})"
             page.addView(CheckBox(this).apply {
                 setTextColor(ink)
                 buttonTintList = ColorStateList.valueOf(accent)
+                minHeight = dp(48)
                 text = getString(R.string.domain_target, rule.pattern.value, device)
                 isChecked = rule.enabled
                 setOnCheckedChangeListener { _, enabled -> safely {
@@ -185,68 +288,92 @@ class MainActivity : Activity() {
             })
             button("Edit ${rule.pattern.value}") { ruleDialog(index) }
             button("Remove ${rule.pattern.value}") { settings.rules = settings.rules.filterIndexed { i, _ -> i != index }; render() }
+            }
         }
-        button("Add domain rule") { ruleDialog() }
+        if (settings.rules.isEmpty()) card {
+            text("A shortcut to your services", 22f)
+            text("Map a domain like photos.example.org to the Meshnet device hosting it.")
+        }
+        button("+ Add domain rule", primary = true) { ruleDialog() }
+        card("DNS resolver") {
         text("Non-matching DNS is forwarded as plaintext to the current network's DNS resolver unless overridden below. Apps with their own DoH/DoT can bypass overrides. Strict Android Private DNS must be disabled or set to automatic before connecting.")
         button("Upstream DNS: ${settings.upstreamDns.ifBlank { "network default" }}") { upstreamDialog() }
-        text("MeshHome replaces other VPN apps in this Android profile. Always-on lockdown is not supported. DNS caches/existing connections may need time or an app restart after switching between home and away.")
-        button("Open setup guide") { tutorialStep = 0; navigate("welcome") }
+        }
     }
 
     private fun renderHome() {
-        text("Your services. One connection.", 22f)
+        text("Your services. Your private connection.")
+        card {
+        page.addView(connectionStatus)
         powerButton = Button(this).apply {
-            textSize = 26f; isAllCaps = false; setTextColor(Color.rgb(12, 23, 38))
-            background = android.graphics.drawable.RippleDrawable(
-                ColorStateList.valueOf(Color.argb(60, 12, 23, 38)), surface(accent, 120f), null
-            )
+            textSize = 18f; isAllCaps = false; setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(dp(24), dp(35), dp(24), dp(24))
+            compoundDrawablePadding = dp(12)
             setOnClickListener {
                 if (ConnectionState.running) {
                     startService(Intent(this@MainActivity, MeshVpnService::class.java).setAction(MeshVpnService.STOP))
                 } else connectVpn()
             }
         }
-        page.addView(powerButton, LinearLayout.LayoutParams(dp(208), dp(208)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(24); bottomMargin = dp(24)
+        page.addView(powerButton, LinearLayout.LayoutParams(dp(184), dp(184)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(16); bottomMargin = dp(16)
         })
-        updatePowerButton()
-        text("Only your selected apps and configured Meshnet targets use this connection. Peer status does not guarantee that a service is reachable.")
-        text("Your setup", 22f)
-        text("${if (vault.hasToken) "✓ Account signed in" else "○ Sign in to Nord"}\n" +
-            "${settings.apps.size} selected apps · ${settings.rules.count { it.enabled }} enabled domain rules\n" +
-            if (settings.mode == NetworkMode.WIFI_ONLY) "Wi-Fi only" else "Wi-Fi and cellular")
-        if (!NativeTelio.available) text("Native engine missing: install a native-enabled build to connect.")
-        if (!vault.hasToken || settings.apps.isEmpty() || settings.rules.none { it.enabled }) {
-            text("Finish your account, app selection, and domain rules in Settings before connecting.")
+        connectionHint = TextView(this).apply {
+            textSize = 14f; setTextColor(muted); gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(8))
         }
-        button("Settings · apps, domains & account") { navigate("settings") }
-        button("How to set up MeshHome") { tutorialStep = 0; navigate("welcome") }
+        page.addView(connectionHint)
+        updatePowerButton()
+        text(if (settings.mode == NetworkMode.WIFI_ONLY) "WI-FI ONLY  ·  SPLIT TUNNEL" else "WI-FI + CELLULAR  ·  SPLIT TUNNEL", 12f)
+        }
+        if (!NativeTelio.available) text("Native engine missing: install a native-enabled build to connect.")
+        val ready = vault.hasToken && settings.apps.isNotEmpty() && settings.rules.any { it.enabled }
+        text(if (ready) "Your connection setup" else "Let's get you connected", 22f)
+        shortcut("Meshnet devices", if (vault.hasToken) "${peers.size} saved devices · manage account" else "Start here · sign in to Nord", "devices")
+        shortcut("Apps & domain routes", "${settings.apps.size} apps · ${settings.rules.count { it.enabled }} enabled routes", "routing")
+        shortcut("Network preferences", if (settings.mode == NetworkMode.WIFI_ONLY) "Wi-Fi only · manage home bypass" else "Wi-Fi and cellular · manage home bypass", "settings")
+        text("Only selected apps and configured targets use Meshnet. Peer connectivity does not guarantee service reachability.", 13f)
     }
 
     private fun updatePowerButton() {
         powerButton?.apply {
-            text = if (ConnectionState.running) "⏻\nDisconnect" else "⏻\nConnect"
+            val active = ConnectionState.running
+            text = if (active) "Disconnect" else "Connect"
+            setTextColor(if (active) accent else base)
+            setCompoundDrawablesWithIntrinsicBounds(null, MeshIcon("home", if (active) accent else base, dp(42)), null, null)
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(0x335bddbe),
+                surface(if (active) Color.rgb(27, 62, 61) else accent, 120f).apply { setStroke(dp(3), accent) }, null
+            )
             contentDescription = if (ConnectionState.running) "Disconnect Meshnet" else "Connect Meshnet"
             isEnabled = !busy || ConnectionState.running
         }
+        connectionHint?.text = if (ConnectionState.running) "Tap to stop your Meshnet session" else "Tap to reach your home services"
     }
 
     private fun renderWelcome() {
         val titles = listOf("Welcome to MeshHome", "Choose what connects", "Give services a name", "You're ready to begin")
         val details = listOf(
-            "Reach your self-hosted services through Nord Meshnet. Start by signing in with a Nord Account access token in Settings. Your server must be online and allow incoming connections from this phone.",
+            "Reach your self-hosted services through Nord Meshnet. Start by signing in with a Nord Account access token in Devices. Your server must be online and allow incoming connections from this phone.",
             "Choose the apps that should use Meshnet, then choose Wi-Fi only or Wi-Fi and cellular. Other apps keep their normal network connection. Optional home Wi-Fi bypass pauses Meshnet at home.",
             "Add a domain such as photos.example.org and select its Meshnet device. Enter a hostname, not https:// or a URL path. *.example.org covers subdomains; add example.org separately for the root domain.",
-            "Set Android Private DNS to Off or Automatic, and disable your selected browser's Secure DNS for overrides. Finish setup in Settings, return home, and tap the power button. Android will ask permission to create a VPN."
+            "Set Android Private DNS to Off or Automatic, and disable your selected browser's Secure DNS for overrides. Choose your apps and domain routes in Routing, then open Connect and tap the power button. Android will ask permission to create a VPN."
         )
         text("GETTING STARTED · ${tutorialStep + 1} OF 4")
+        page.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 4; progress = tutorialStep + 1
+            progressTintList = ColorStateList.valueOf(accent)
+        }, LinearLayout.LayoutParams(-1, dp(8)).apply { topMargin = dp(16); bottomMargin = dp(24) })
+        card {
         text(titles[tutorialStep], 30f)
         text(details[tutorialStep], 18f)
+        }
         text("MeshHome is experimental. It replaces any other VPN in this profile and routes only selected traffic.")
-        button(if (tutorialStep == 3) "Open settings" else "Next →") {
+        button(if (tutorialStep == 3) "Set up my account" else "Next →", primary = true) {
             if (tutorialStep == 3) {
                 getPreferences(MODE_PRIVATE).edit().putBoolean("welcomeSeen", true).apply()
-                navigate("settings")
+                navigate("devices")
             } else { tutorialStep++; render() }
         }
         if (tutorialStep > 0) button("Previous") { tutorialStep--; render() }
@@ -302,12 +429,114 @@ class MainActivity : Activity() {
             .filter { it.activityInfo.packageName != packageName }
             .distinctBy { it.activityInfo.packageName }.sortedBy { it.loadLabel(packageManager).toString().lowercase() }
         val selected = settings.apps.toMutableSet()
-        AlertDialog.Builder(this).setTitle("Apps allowed to use Meshnet")
-            .setMultiChoiceItems(apps.map { "${it.loadLabel(packageManager)}\n${it.activityInfo.packageName}" }.toTypedArray(),
-                apps.map { it.activityInfo.packageName in selected }.toBooleanArray()) { _, index, checked ->
-                val id = apps[index].activityInfo.packageName
-                if (checked) selected.add(id) else selected.remove(id)
-            }.setNegativeButton("Cancel", null).setPositiveButton("Save") { _, _ -> settings.apps = selected; render() }.show()
+        val labels = apps.associate { it.activityInfo.packageName to it.loadLabel(packageManager).toString() }
+        var visibleApps = apps
+        val count = TextView(this).apply {
+            setTextColor(accent); textSize = 14f
+            setPadding(0, dp(12), 0, dp(12))
+            accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        fun updateCount() { count.text = "${selected.size} selected · ${visibleApps.size} apps shown" }
+        val search = EditText(this).apply {
+            hint = "Search apps"; textSize = 16f
+            setSingleLine(true); setTextColor(ink); setHintTextColor(muted)
+            inputType = InputType.TYPE_CLASS_TEXT
+            background = surface(panel, 14f)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            contentDescription = "Search apps by name or package"
+        }
+        class AppRow : LinearLayout(this@MainActivity) {
+            val icon = ImageView(this@MainActivity).apply { importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+            val name = TextView(this@MainActivity).apply { textSize = 16f; setTextColor(ink); setTypeface(null, Typeface.BOLD) }
+            val packageLabel = TextView(this@MainActivity).apply {
+                textSize = 12f; setTextColor(muted); maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            }
+            val check = CheckBox(this@MainActivity).apply {
+                buttonTintList = ColorStateList.valueOf(accent)
+                isClickable = false; isFocusable = false
+                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            init {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(14), dp(8), dp(14))
+                minimumHeight = dp(80)
+                addView(icon, LinearLayout.LayoutParams(dp(42), dp(42)))
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(name); addView(packageLabel)
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(14); rightMargin = dp(8) })
+                addView(check)
+            }
+        }
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = visibleApps.size
+            override fun getItem(position: Int) = visibleApps[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: android.view.View?, parent: android.view.ViewGroup?): android.view.View {
+                val app = getItem(position)
+                val packageId = app.activityInfo.packageName
+                return ((convertView as? AppRow) ?: AppRow()).apply {
+                    name.text = labels[packageId]; packageLabel.text = packageId
+                    icon.setImageDrawable(runCatching { app.loadIcon(packageManager) }.getOrElse { packageManager.defaultActivityIcon })
+                    check.isChecked = packageId in selected
+                    background = android.graphics.drawable.RippleDrawable(
+                        ColorStateList.valueOf(0x225bddbe),
+                        surface(if (check.isChecked) Color.rgb(27, 55, 57) else panel, 14f), null
+                    )
+                    contentDescription = "${labels[packageId]}, ${if (check.isChecked) "selected" else "not selected"}"
+                }
+            }
+        }
+        val empty = TextView(this).apply {
+            text = "No apps found. Try another name."
+            setTextColor(muted); gravity = Gravity.CENTER; setPadding(dp(16), dp(24), dp(16), dp(24))
+        }
+        val list = ListView(this).apply {
+            this.adapter = adapter
+            divider = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT); dividerHeight = dp(8)
+            setOnItemClickListener { _, _, position, _ ->
+                val id = visibleApps[position].activityInfo.packageName
+                if (!selected.add(id)) selected.remove(id)
+                adapter.notifyDataSetChanged(); updateCount()
+            }
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(8))
+            addView(TextView(this@MainActivity).apply {
+                text = "Only selected apps use Meshnet. Everything else keeps its normal connection."
+                textSize = 14f; setTextColor(muted); setPadding(0, 0, 0, dp(16))
+            })
+            addView(search); addView(count)
+            addView(FrameLayout(this@MainActivity).apply {
+                addView(list, FrameLayout.LayoutParams(-1, -1))
+                addView(empty, FrameLayout.LayoutParams(-1, -1))
+            }, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        list.emptyView = empty
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s.toString().trim()
+                visibleApps = apps.filter {
+                    it.activityInfo.packageName.contains(query, ignoreCase = true) ||
+                        labels.getValue(it.activityInfo.packageName).contains(query, ignoreCase = true)
+                }
+                adapter.notifyDataSetChanged(); updateCount()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        updateCount()
+        val dialog = AlertDialog.Builder(this).setTitle("Choose your apps")
+            .setView(content).setNegativeButton("Cancel", null)
+            .setPositiveButton("Save selection") { _, _ -> settings.apps = selected; render() }.create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        dialog.show()
+        dialog.window?.apply {
+            setBackgroundDrawable(surface(base, 24f))
+            setLayout((resources.displayMetrics.widthPixels * 0.94f).toInt(), (resources.displayMetrics.heightPixels * 0.85f).toInt())
+            setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
+        }
     }
 
     private fun ruleDialog(index: Int? = null) {
@@ -348,27 +577,64 @@ class MainActivity : Activity() {
 
     private fun addHomeWifi() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION), 1)
-            toast("Grant precise location, enable location services, then try again. Used only to read the current Wi-Fi name.")
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION), 4)
+            return
+        }
+        if (!getSystemService(android.location.LocationManager::class.java).isLocationEnabled) {
+            AlertDialog.Builder(this).setTitle("Turn on Location to read Wi-Fi")
+                .setMessage("Precise location permission is granted, but Android also requires the phone's Location setting to be on to reveal the Wi-Fi name. Enable it, return here, and tap Add current Wi-Fi as home again.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open Location settings") { _, _ -> startActivity(Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                .show()
             return
         }
         val manager = getSystemService(ConnectivityManager::class.java)
-        val capabilities = manager.getNetworkCapabilities(manager.activeNetwork)
-        if (capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-            toast("Connect directly to your home Wi-Fi first (without another VPN).")
+        // The default network may be our VPN. Find the physical Wi-Fi instead.
+        @Suppress("DEPRECATION")
+        val capabilities = manager.allNetworks.mapNotNull { manager.getNetworkCapabilities(it) }
+            .firstOrNull { it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !it.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }
+        if (capabilities == null) {
+            toast("Connect to your home Wi-Fi, then try again.")
             return
         }
+        // Capability snapshots can contain a non-null but redacted WifiInfo.
+        // Read fresh permission-filtered Wi-Fi data rather than stopping at it.
         @Suppress("DEPRECATION")
-        val info = (capabilities.transportInfo as? WifiInfo)
-            ?: (applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager).connectionInfo
-        val ssid = info.ssid?.removeSurrounding("\"")
-        if (ssid.isNullOrBlank() || ssid == "<unknown ssid>") {
+        val currentInfo = (applicationContext.getSystemService(WIFI_SERVICE) as android.net.wifi.WifiManager).connectionInfo
+        val ssid = listOf(currentInfo, capabilities.transportInfo as? WifiInfo)
+            .mapNotNull { it?.ssid?.removeSurrounding("\"") }
+            .firstOrNull { it.isNotBlank() && it != android.net.wifi.WifiManager.UNKNOWN_SSID }
+        if (ssid == null) {
             toast("Wi-Fi name unavailable. Check precise location permission and location services.")
+            return
+        }
+        if (ssid in settings.homeSsids) {
+            toast("This Wi-Fi is already saved as a home network.")
             return
         }
         AlertDialog.Builder(this).setTitle("Bypass Meshnet on $ssid?")
             .setMessage("Only add networks you control. Another access point can advertise the same Wi-Fi name.")
-            .setNegativeButton("Cancel", null).setPositiveButton("Add") { _, _ -> settings.homeSsids = settings.homeSsids + ssid; render() }.show()
+            .setNegativeButton("Cancel", null).setPositiveButton("Add") { _, _ ->
+                settings.homeSsids = settings.homeSsids + ssid
+                render()
+                toast("Home Wi-Fi added.")
+                if (ConnectionState.running) startService(Intent(this, MeshVpnService::class.java).setAction(MeshVpnService.RECHECK))
+            }.show()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 4) return
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            addHomeWifi()
+        } else {
+            AlertDialog.Builder(this).setTitle("Precise location is needed")
+                .setMessage("Android uses this permission to reveal your Wi-Fi name. Allow precise location in app permissions, then try adding your home Wi-Fi again.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("App permissions") { _, _ ->
+                    startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$packageName")))
+                }.show()
+        }
     }
 
     private fun safely(action: () -> Unit) {
@@ -431,6 +697,48 @@ class MainActivity : Activity() {
     @Deprecated("Platform consent callback")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode == RESULT_OK && requestCode in 201..202) {
+            val uri = data?.data ?: return
+            if (requestCode == 201) {
+                try {
+                    val text = settings.backup().exportText()
+                    checkNotNull(contentResolver.openOutputStream(uri, "wt")).bufferedWriter(Charsets.UTF_8).use { it.write(text) }
+                    toast("Settings exported. No credentials included.")
+                } catch (_: Exception) { toast("Could not export settings to this file.") }
+            } else {
+                val backup = try {
+                    val bytes = checkNotNull(contentResolver.openInputStream(uri)).use { input ->
+                        val output = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            require(output.size() + count <= 1_048_576)
+                            output.write(buffer, 0, count)
+                        }
+                        output.toByteArray()
+                    }
+                    SettingsBackup.parse(bytes.toString(Charsets.UTF_8))
+                } catch (_: Exception) {
+                    toast("Invalid or unreadable settings file. No settings changed."); return
+                }
+                AlertDialog.Builder(this).setTitle("Import settings?")
+                    .setMessage("Replace your settings with ${backup.apps.size} apps, ${backup.rules.size} domain routes and ${backup.homeSsids.size} home networks? Missing apps and device IDs may need updating. Disconnect first if a VPN session is running." +
+                        if (backup.nordToken != null) "\n\nThis file contains a Nord token. Import will send it over HTTPS to Nord to sign in and register this phone. Existing credentials are not exported." else "\n\nYour current account will not change.")
+                    .setNegativeButton("Cancel", null).setPositiveButton("Import") { _, _ ->
+                        if (ConnectionState.running) {
+                            toast("Disconnect Meshnet before importing settings.")
+                        } else {
+                            settings.restore(backup)
+                            render()
+                            if (backup.nordToken != null) accountOperation {
+                                accounts.login(backup.nordToken, Networks.accountNetwork(this, settings))
+                            } else toast("Settings imported.")
+                        }
+                    }.show()
+            }
+            return
+        }
         if (requestCode == 100 && resultCode == RESULT_OK) startForegroundService(Intent(this, MeshVpnService::class.java))
     }
 

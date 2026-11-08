@@ -7,6 +7,16 @@ import com.mybm.meshhome.core.*
 
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    internal fun backup() = SettingsBackup(mode, apps, homeSsids, upstreamDns, rules)
+
+    /** Apply a fully validated import in one preferences transaction. */
+    internal fun restore(backup: SettingsBackup) {
+        val validated = SettingsBackup.parse(backup.exportText())
+        val json = JSONObject(validated.exportText())
+        prefs.edit().putString("mode", validated.mode.name)
+            .putStringSet("apps", validated.apps).putStringSet("homeSsids", validated.homeSsids)
+            .putString("upstreamDns", validated.upstreamDns).putString("rules", json.getJSONArray("rules").toString()).apply()
+    }
     var upstreamDns: String
         get() = prefs.getString("upstreamDns", "")!!
         set(value) {
