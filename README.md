@@ -25,14 +25,14 @@ The app supports Wi-Fi-only or Wi-Fi-and-cellular policy, optional home-Wi-Fi by
 ## Android quick start
 
 1. **Build and install a native-enabled APK** (see [Build](#build)). A plain Gradle build without the native library is useful for UI/configuration work but cannot connect.
-2. Open MeshHome and choose **Sign in with Nord token**. Generate a token through your Nord Account and enter it only in the app. MeshHome sends it over HTTPS to Nord's API; it never asks for your Nord password. The app registers this phone as a distinct Meshnet device.
+2. Follow the first-run setup guide, then open **Settings → Sign in with Nord token**. The guide can be reopened from the home screen. Generate a token through your Nord Account and enter it only in the app. MeshHome sends it over HTTPS to Nord's API; it never asks for your Nord password. The app registers this phone as a distinct Meshnet device.
 3. Tap **Refresh Meshnet devices** and confirm your server or other target device appears.
 4. Tap **Choose apps** and select only the apps that should use MeshHome. An empty or invalid selection will not create an unrestricted tunnel. Android allows only one active VPN per profile; connecting MeshHome replaces another VPN in that profile.
 5. Under **Domain → Meshnet device**, add a domain rule and select its peer. An exact rule such as `service.example.org` applies only to that name. A wildcard such as `*.example.org` applies to subdomains (including deeper subdomains), but **not** to `example.org`; add a separate exact rule for the apex.
 6. Choose **Wi-Fi only** or **all networks**. Optionally add a home Wi-Fi network for bypass. Home bypass restores Android's ordinary LAN routing/DNS; it is a convenience based on the visible Wi-Fi name, not secure network authentication.
 7. For local DNS overrides, set Android **Private DNS** to **Off** or **Automatic** (not a strict provider hostname). Turn off the selected browser's own **Secure DNS/DoH** while testing so it uses Android's VPN DNS path.
-8. Tap **Connect Meshnet** and approve Android's VPN prompt and notification permission if requested. Android's key/VPN indicator should appear while the tunnel is active. Check both the target-peer count and whether the intended service loads: a connected peer does not prove its web service is reachable.
-9. Tap **Disconnect Meshnet** in the app or use the foreground notification's Disconnect action when finished.
+8. Return home and tap the large **Connect** power button. Approve Android's VPN prompt and notification permission if requested. Android's key/VPN indicator should appear while the tunnel is active. The home screen shows live connection status. Check both the target-peer count and whether the intended service loads: a connected peer does not prove its web service is reachable.
+9. Tap the same power button, now labeled **Disconnect**, or use the foreground notification's Disconnect action when finished.
 
 ### Service prerequisites
 

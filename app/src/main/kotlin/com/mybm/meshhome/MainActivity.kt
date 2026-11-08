@@ -15,6 +15,11 @@ import android.content.Intent
 import android.text.InputType
 import android.view.WindowManager
 import android.widget.*
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
+import android.view.Gravity
 import com.mybm.meshhome.core.*
 
 /** Configuration, explicit account operations, and user-initiated VPN lifecycle. */
@@ -27,9 +32,25 @@ class MainActivity : Activity() {
     private var busy = false
     private var accountStatus = ""
     private lateinit var connectionStatus: TextView
+    private var screen = "home"
+    private var tutorialStep = 0
+    private var powerButton: Button? = null
+    private val ink = Color.rgb(231, 239, 250)
+    private val muted = Color.rgb(162, 181, 204)
+    private val accent = Color.rgb(91, 221, 190)
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+    private fun surface(color: Int, radius: Float = 20f) = GradientDrawable().apply {
+        setColor(color); cornerRadius = dp(radius.toInt()).toFloat()
+    }
+    private fun navigate(destination: String) { screen = destination; render() }
     private val handler = Handler(Looper.getMainLooper())
     private val statusListener: (String) -> Unit = { message ->
-        handler.post { if (!isDestroyed && ::connectionStatus.isInitialized) connectionStatus.text = message }
+        handler.post {
+            if (!isDestroyed && ::connectionStatus.isInitialized) {
+                connectionStatus.text = message
+                updatePowerButton()
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +60,17 @@ class MainActivity : Activity() {
         vault = TokenVault(this)
         accounts = AccountRepository(this)
         peers = runCatching { accounts.cachedMap()?.peers.orEmpty() }.getOrDefault(emptyList())
+        screen = savedInstanceState?.getString("screen") ?: if (
+            getPreferences(MODE_PRIVATE).getBoolean("welcomeSeen", false)
+        ) "home" else "welcome"
+        tutorialStep = savedInstanceState?.getInt("tutorialStep") ?: 0
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT
+            ) {
+                if (screen != "home") navigate("home") else finish()
+            }
+        }
         render()
     }
 
@@ -54,17 +86,34 @@ class MainActivity : Activity() {
     }
 
     private fun text(value: String, size: Float = 16f) {
-        page.addView(TextView(this).apply { text = value; textSize = size; setPadding(0, 12, 0, 12) })
+        page.addView(TextView(this).apply {
+            text = value; textSize = size; setTextColor(if (size >= 22f) ink else muted)
+            setPadding(0, dp(10), 0, dp(10))
+            if (size >= 22f) setTypeface(null, Typeface.BOLD)
+            setLineSpacing(dp(3).toFloat(), 1f)
+        })
     }
 
     private fun button(label: String, action: () -> Unit) {
-        page.addView(Button(this).apply { text = label; isEnabled = !busy; setOnClickListener { action() } })
+        page.addView(Button(this).apply {
+            text = label; isAllCaps = false; textSize = 16f; setTextColor(ink)
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(Color.argb(60, 91, 221, 190)),
+                surface(Color.rgb(32, 51, 73)), null
+            ); minHeight = dp(52)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            isEnabled = !busy; alpha = if (busy) 0.5f else 1f
+            setOnClickListener { action() }
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); bottomMargin = dp(4) })
     }
 
     private fun render() {
+        powerButton = null
         val spacing = (16 * resources.displayMetrics.density).toInt()
         page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(spacing, spacing, spacing, spacing * 2) }
         setContentView(ScrollView(this).apply {
+            setBackgroundColor(Color.rgb(12, 23, 38))
+            isFillViewport = true
             addView(page)
             setOnApplyWindowInsetsListener { view, insets ->
                 if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -78,13 +127,19 @@ class MainActivity : Activity() {
             }
             requestApplyInsets()
         })
-        text("MeshHome", 30f)
-        connectionStatus = TextView(this).apply { text = ConnectionState.message; textSize = 20f }
+        if (screen == "welcome") { renderWelcome(); return }
+        text(if (screen == "settings") "Settings" else "MeshHome", 30f)
+        if (screen == "settings") button("‹ Back to home") { navigate("home") }
+        connectionStatus = TextView(this).apply {
+            text = ConnectionState.message; textSize = 20f; setTextColor(accent)
+            gravity = Gravity.CENTER; setPadding(dp(16), dp(20), dp(16), dp(20))
+            background = surface(Color.rgb(22, 39, 57))
+            accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
         page.addView(connectionStatus)
+        if (screen == "home") { renderHome(); return }
         text(if (NativeTelio.available) "Native Meshnet engine installed (relay mode). Peer connectivity is shown separately from tunnel readiness."
             else "Native library is not installed for this CPU. Sign-in/settings work, but VPN connection is unavailable until a native build is installed.")
-        button("Connect Meshnet") { connectVpn() }
-        button("Disconnect Meshnet") { startService(Intent(this, MeshVpnService::class.java).setAction(MeshVpnService.STOP)) }
         text("Nord account", 22f)
         text(if (vault.hasToken) "Token stored encrypted. ${peers.size} devices in cached map." else "Not signed in.")
         if (accountStatus.isNotBlank()) text(accountStatus)
@@ -96,6 +151,8 @@ class MainActivity : Activity() {
         peers.forEach { text("${it.name} · ${(it.ipv4 + it.ipv6).joinToString()}") }
         text("Network policy", 22f)
         page.addView(Switch(this).apply {
+            setTextColor(ink)
+            minHeight = dp(56)
             text = getString(R.string.allow_mobile_data)
             isChecked = settings.mode == NetworkMode.ALL_NETWORKS
             setOnCheckedChangeListener { _, checked -> settings.mode = if (checked) NetworkMode.ALL_NETWORKS else NetworkMode.WIFI_ONLY }
@@ -118,6 +175,8 @@ class MainActivity : Activity() {
         settings.rules.forEachIndexed { index, rule ->
             val device = peers.find { it.id == rule.deviceId }?.name ?: "Unavailable device (${rule.deviceId})"
             page.addView(CheckBox(this).apply {
+                setTextColor(ink)
+                buttonTintList = ColorStateList.valueOf(accent)
                 text = getString(R.string.domain_target, rule.pattern.value, device)
                 isChecked = rule.enabled
                 setOnCheckedChangeListener { _, enabled -> safely {
@@ -131,6 +190,82 @@ class MainActivity : Activity() {
         text("Non-matching DNS is forwarded as plaintext to the current network's DNS resolver unless overridden below. Apps with their own DoH/DoT can bypass overrides. Strict Android Private DNS must be disabled or set to automatic before connecting.")
         button("Upstream DNS: ${settings.upstreamDns.ifBlank { "network default" }}") { upstreamDialog() }
         text("MeshHome replaces other VPN apps in this Android profile. Always-on lockdown is not supported. DNS caches/existing connections may need time or an app restart after switching between home and away.")
+        button("Open setup guide") { tutorialStep = 0; navigate("welcome") }
+    }
+
+    private fun renderHome() {
+        text("Your services. One connection.", 22f)
+        powerButton = Button(this).apply {
+            textSize = 26f; isAllCaps = false; setTextColor(Color.rgb(12, 23, 38))
+            background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(Color.argb(60, 12, 23, 38)), surface(accent, 120f), null
+            )
+            setOnClickListener {
+                if (ConnectionState.running) {
+                    startService(Intent(this@MainActivity, MeshVpnService::class.java).setAction(MeshVpnService.STOP))
+                } else connectVpn()
+            }
+        }
+        page.addView(powerButton, LinearLayout.LayoutParams(dp(208), dp(208)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(24); bottomMargin = dp(24)
+        })
+        updatePowerButton()
+        text("Only your selected apps and configured Meshnet targets use this connection. Peer status does not guarantee that a service is reachable.")
+        text("Your setup", 22f)
+        text("${if (vault.hasToken) "✓ Account signed in" else "○ Sign in to Nord"}\n" +
+            "${settings.apps.size} selected apps · ${settings.rules.count { it.enabled }} enabled domain rules\n" +
+            if (settings.mode == NetworkMode.WIFI_ONLY) "Wi-Fi only" else "Wi-Fi and cellular")
+        if (!NativeTelio.available) text("Native engine missing: install a native-enabled build to connect.")
+        if (!vault.hasToken || settings.apps.isEmpty() || settings.rules.none { it.enabled }) {
+            text("Finish your account, app selection, and domain rules in Settings before connecting.")
+        }
+        button("Settings · apps, domains & account") { navigate("settings") }
+        button("How to set up MeshHome") { tutorialStep = 0; navigate("welcome") }
+    }
+
+    private fun updatePowerButton() {
+        powerButton?.apply {
+            text = if (ConnectionState.running) "⏻\nDisconnect" else "⏻\nConnect"
+            contentDescription = if (ConnectionState.running) "Disconnect Meshnet" else "Connect Meshnet"
+            isEnabled = !busy || ConnectionState.running
+        }
+    }
+
+    private fun renderWelcome() {
+        val titles = listOf("Welcome to MeshHome", "Choose what connects", "Give services a name", "You're ready to begin")
+        val details = listOf(
+            "Reach your self-hosted services through Nord Meshnet. Start by signing in with a Nord Account access token in Settings. Your server must be online and allow incoming connections from this phone.",
+            "Choose the apps that should use Meshnet, then choose Wi-Fi only or Wi-Fi and cellular. Other apps keep their normal network connection. Optional home Wi-Fi bypass pauses Meshnet at home.",
+            "Add a domain such as photos.example.org and select its Meshnet device. Enter a hostname, not https:// or a URL path. *.example.org covers subdomains; add example.org separately for the root domain.",
+            "Set Android Private DNS to Off or Automatic, and disable your selected browser's Secure DNS for overrides. Finish setup in Settings, return home, and tap the power button. Android will ask permission to create a VPN."
+        )
+        text("GETTING STARTED · ${tutorialStep + 1} OF 4")
+        text(titles[tutorialStep], 30f)
+        text(details[tutorialStep], 18f)
+        text("MeshHome is experimental. It replaces any other VPN in this profile and routes only selected traffic.")
+        button(if (tutorialStep == 3) "Open settings" else "Next →") {
+            if (tutorialStep == 3) {
+                getPreferences(MODE_PRIVATE).edit().putBoolean("welcomeSeen", true).apply()
+                navigate("settings")
+            } else { tutorialStep++; render() }
+        }
+        if (tutorialStep > 0) button("Previous") { tutorialStep--; render() }
+        button("Skip to home") {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("welcomeSeen", true).apply()
+            navigate("home")
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("screen", screen)
+        outState.putInt("tutorialStep", tutorialStep)
+        super.onSaveInstanceState(outState)
+    }
+
+    @Deprecated("Platform back navigation")
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (screen != "home") navigate("home") else super.onBackPressed()
     }
 
     private fun tokenDialog() {
@@ -179,13 +314,20 @@ class MainActivity : Activity() {
             return
         }
         val old = index?.let { settings.rules[it] }
-        val input = EditText(this).apply { hint = "*.example.org"; setText(old?.pattern?.value ?: "") }
+        val input = EditText(this).apply {
+            hint = "photos.example.org"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setText(old?.pattern?.value ?: "")
+        }
         val picker = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, peers.map { "${it.name} (${it.id})" })
             setSelection(peers.indexOfFirst { it.id == old?.deviceId }.coerceAtLeast(0))
         }
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(input); addView(picker) }
-        val dialog = AlertDialog.Builder(this).setTitle("Domain → device").setView(fields)
+        val dialog = AlertDialog.Builder(this).setTitle("Domain → device")
+            .setMessage("Enter a domain only, such as photos.example.org or *.example.org. Do not include https://, a port, or a path. Then choose the device hosting your service.")
+            .setView(fields)
             .setNegativeButton("Cancel", null).setPositiveButton("Save", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { safely {
