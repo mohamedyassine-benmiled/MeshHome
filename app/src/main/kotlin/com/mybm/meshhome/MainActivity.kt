@@ -264,7 +264,11 @@ class MainActivity : Activity() {
 
     @Deprecated("Platform back navigation")
     @Suppress("DEPRECATION")
+    // API 33+ uses OnBackInvokedDispatcher registered in onCreate; this is
+    // retained only for Android 10–12, which do not expose that dispatcher.
+    @android.annotation.SuppressLint("GestureBackNavigation")
     override fun onBackPressed() {
+        if (android.os.Build.VERSION.SDK_INT >= 33) return
         if (screen != "home") navigate("home") else super.onBackPressed()
     }
 
