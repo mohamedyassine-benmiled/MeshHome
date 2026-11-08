@@ -1,0 +1,19 @@
+diff --git a/crates/telio-wg/src/adapter/neptun.rs b/crates/telio-wg/src/adapter/neptun.rs
+--- a/crates/telio-wg/src/adapter/neptun.rs
++++ b/crates/telio-wg/src/adapter/neptun.rs
+@@ -78,4 +78,14 @@
+         let device = match tun {
+-            Some(tun) => DeviceHandle::new_with_tun(TunSocket::new_from_fd(tun)?, config)?,
++            Some(tun) => {
++                // Android MeshHome supplies a packet-preserving socketpair, not
++                // the OS TUN. The public numeric-name constructor adopts an fd
++                // without TUNGETIFF (which rejects socketpairs), and reports a
++                // default MTU of 1500. Android's actual VPN MTU is set to 1280.
++                #[cfg(target_os = "android")]
++                let tunnel = TunSocket::new(&tun.to_string())?;
++                #[cfg(not(target_os = "android"))]
++                let tunnel = TunSocket::new_from_fd(tun)?;
++                DeviceHandle::new_with_tun(tunnel, config)?
++            },
+             None => DeviceHandle::new(name, config)?,
+         };

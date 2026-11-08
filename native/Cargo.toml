@@ -1,0 +1,24 @@
+[package]
+name = "meshhome"
+version = "0.3.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21.1"
+libc = "=0.2.189"
+serde_json = "1"
+telio-core = { path = "../vendor/libtelio/crates/telio-core", default-features = false, features = ["enable_firewall"] }
+
+# Keep the same fork used by the pinned upstream workspace. Cargo does not inherit
+# a dependency workspace's [patch] table into this root manifest.
+[patch.crates-io]
+pnet_packet = { git = "https://github.com/NordSecurity/libpnet.git", tag = "v0.36.0" }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1

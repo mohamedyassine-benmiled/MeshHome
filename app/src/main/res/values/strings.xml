@@ -1,0 +1,4 @@
+<resources>
+    <string name="allow_mobile_data">Allow mobile data (otherwise Wi-Fi only)</string>
+    <string name="domain_target">%1$s → %2$s</string>
+</resources>
